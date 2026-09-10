@@ -5,6 +5,8 @@ import os
 
 /// DDC/CI over the Apple Silicon `IOAVService` I2C bridge.
 ///
+/// Generic VCP read/write; brightness helpers are thin wrappers around VCP 0x10.
+///
 /// Packet layout matches `m1ddc` and MonitorControl's Arm64DDC:
 /// the DDC source address `0x51` is passed as the I2C data-address argument
 /// to `IOAVServiceWriteI2C` / `IOAVServiceReadI2C`, not as the first payload byte.
@@ -39,12 +41,12 @@ enum DDC {
 
     // MARK: - Public VCP helpers
 
-    static func readVCP(service: IOAVService, code: UInt8) -> VCPResult? {
+    static func readVCP(service: IOAVService, code: UInt8) -> (current: UInt16, max: UInt16)? {
         i2cLock.lock()
         defer { i2cLock.unlock() }
         for attempt in 0..<readAttempts {
             if let result = readVCPOnce(service: service, code: code) {
-                return result
+                return (current: result.current, max: result.max)
             }
             usleep(retrySleepUs)
             logger.debug("DDC VCP 0x\(String(code, radix: 16), privacy: .public) read retry \(attempt + 1)")
@@ -75,8 +77,7 @@ enum DDC {
             if !lastOK {
                 logger.debug("DDC write VCP 0x\(String(code, radix: 16), privacy: .public) IOReturn 0x\(String(UInt32(bitPattern: kr), radix: 16), privacy: .public)")
                 // A missing / unplugged display will not recover by spinning retries.
-                if kr == kIOReturnNotAttached || kr == kIOReturnNotFound
-                    || kr == kIOReturnOffline || kr == kIOReturnNoDevice {
+                if shouldStopRetrying(kr) {
                     break
                 }
             }
@@ -87,7 +88,7 @@ enum DDC {
         return lastOK
     }
 
-    static func readBrightness(service: IOAVService) -> VCPResult? {
+    static func readBrightness(service: IOAVService) -> (current: UInt16, max: UInt16)? {
         readVCP(service: service, code: VCP.brightness)
     }
 
@@ -95,7 +96,7 @@ enum DDC {
         writeVCP(service: service, code: VCP.brightness, value: native)
     }
 
-    static func readContrast(service: IOAVService) -> VCPResult? {
+    static func readContrast(service: IOAVService) -> (current: UInt16, max: UInt16)? {
         readVCP(service: service, code: VCP.contrast)
     }
 
@@ -112,6 +113,11 @@ enum DDC {
         let ceiling = nativeMax == 0 ? UInt32(100) : UInt32(nativeMax)
         let scaled = (UInt32(clamped) * ceiling + 50) / 100
         return UInt16(clamping: min(scaled, ceiling))
+    }
+
+    static func shouldStopRetrying(_ kr: IOReturn) -> Bool {
+        kr == kIOReturnNotAttached || kr == kIOReturnNotFound
+            || kr == kIOReturnOffline || kr == kIOReturnNoDevice
     }
 
     // MARK: - Packets
@@ -213,7 +219,8 @@ enum DDC {
     ///   [2] = 0x02 (opcode), [4] = VCP code,
     ///   max = (reply[6] << 8) | reply[7],
     ///   current = (reply[8] << 8) | reply[9]
-    private static func parseVCPReply(_ reply: [UInt8], expectedVCP: UInt8) -> VCPResult? {
+    /// Shared with the Intel `IOFramebuffer` path.
+    static func parseVCPReply(_ reply: [UInt8], expectedVCP: UInt8) -> VCPResult? {
         let candidates: [[UInt8]] = {
             var list: [[UInt8]] = [reply]
             if reply.count > 1, reply[0] == 0x00 {

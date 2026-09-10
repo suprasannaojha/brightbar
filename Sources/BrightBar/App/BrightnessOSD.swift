@@ -3,15 +3,25 @@ import Darwin
 import ObjectiveC
 import os
 
-/// Native macOS brightness bezel, shown on a specific display via private `OSDManager`.
+/// Native macOS brightness/volume bezel, shown on a specific display via private `OSDManager`.
 ///
 /// Loads `/System/Library/PrivateFrameworks/OSDUIHelper.framework` (and the
 /// `OSD.framework` stub that actually ships today) with `Bundle.load` / `dlopen`.
 /// Every lookup is guarded; failures are logged once and then skipped.
+///
+/// Image ids match MonitorControl's `OSDImage`: brightness = 1, speaker = 3, speakerMuted = 4.
+@MainActor
 enum BrightnessOSD {
-    private static let logger = Logger(subsystem: "com.brightbar.app", category: "osd")
+    private static let logger = Logger(subsystem: "com.brightbar.app", category: "input")
     private static var didLogFailure = false
     private static var cache: Cache?
+
+    /// MonitorControl `OSDImage` raw values.
+    private enum Image {
+        static let brightness: Int64 = 1 // OSDGraphicBacklight
+        static let speaker: Int64 = 3 // OSDGraphicSpeaker
+        static let speakerMuted: Int64 = 4 // OSDGraphicSpeakerMuted
+    }
 
     private struct Cache {
         let manager: AnyObject
@@ -33,19 +43,31 @@ enum BrightnessOSD {
     ) -> Void
 
     static func showBrightness(on displayID: CGDirectDisplayID, value: Double) {
-        guard let cache = loadIfNeeded() else { return }
-
         let filled: UInt32
         if value < 0 {
             filled = 0
         } else {
-            filled = UInt32((max(0, value) / 100.0 * 16.0).rounded())
+            filled = chicletCount(value)
         }
+        show(image: Image.brightness, on: displayID, filled: filled)
+    }
+
+    static func showVolume(on displayID: CGDirectDisplayID, value: Double, muted: Bool) {
+        let filled = muted ? 0 : chicletCount(value)
+        show(image: muted ? Image.speakerMuted : Image.speaker, on: displayID, filled: filled)
+    }
+
+    private static func chicletCount(_ value: Double) -> UInt32 {
+        UInt32((max(0, min(100, value)) / 100.0 * 16.0).rounded())
+    }
+
+    private static func show(image: Int64, on displayID: CGDirectDisplayID, filled: UInt32) {
+        guard let cache = loadIfNeeded() else { return }
 
         cache.show(
             cache.manager,
             cache.selector,
-            1, // OSDGraphicBacklight
+            image,
             displayID,
             0x1F4,
             1000,

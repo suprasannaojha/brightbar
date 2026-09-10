@@ -8,10 +8,10 @@ import os
 struct MatchedExternalDisplay {
     let display: ExternalDisplay
     let service: RetainedIOAVService
-    let identity: DisplayIdentity
+    let identity: IORegistryIdentity
 }
 
-struct DisplayIdentity: Equatable {
+struct IORegistryIdentity: Equatable {
     var vendor: UInt32 = 0
     var product: UInt32 = 0
     var serial: UInt32 = 0
@@ -22,6 +22,16 @@ struct DisplayIdentity: Equatable {
     var portKey: String = ""
 
     var hasNumericIdentity: Bool { vendor != 0 || product != 0 }
+
+    func coreIdentity(fallbackDisplayID: CGDirectDisplayID) -> DisplayIdentity {
+        let alpha = alphanumericSerial.trimmingCharacters(in: .whitespacesAndNewlines)
+        return DisplayIdentity(
+            vendor: vendor != 0 ? vendor : CGDisplayVendorNumber(fallbackDisplayID),
+            product: product != 0 ? product : CGDisplayModelNumber(fallbackDisplayID),
+            serial: serial != 0 ? serial : CGDisplaySerialNumber(fallbackDisplayID),
+            alphanumericSerial: alpha.isEmpty ? nil : alpha
+        )
+    }
 }
 
 /// Maps `DCPAVServiceProxy` IORegistry entries onto `CGDirectDisplayID`s.
@@ -129,13 +139,13 @@ enum DisplayMatcher {
 
     private struct AVCandidate {
         let service: RetainedIOAVService
-        var identity: DisplayIdentity
+        var identity: IORegistryIdentity
     }
 
     /// Collect external AV services and attach the best identity we can find.
     private static func collectAVCandidates() -> [AVCandidate] {
-        var lastFramebuffer = DisplayIdentity()
-        var framebuffers: [DisplayIdentity] = []
+        var lastFramebuffer = IORegistryIdentity()
+        var framebuffers: [IORegistryIdentity] = []
         var candidates: [AVCandidate] = []
 
         let root = IORegistryGetRootEntry(kIOMainPortDefault)
@@ -214,8 +224,8 @@ enum DisplayMatcher {
         return candidates
     }
 
-    private static func identityByWalkingParents(from service: io_registry_entry_t) -> DisplayIdentity {
-        var identity = DisplayIdentity()
+    private static func identityByWalkingParents(from service: io_registry_entry_t) -> IORegistryIdentity {
+        var identity = IORegistryIdentity()
         identity.portKey = portKey(from: registryPath(service)) ?? ""
 
         // Direct / parent search for the usual identity keys.
@@ -254,8 +264,8 @@ enum DisplayMatcher {
         return identity
     }
 
-    private static func identityFromFramebuffer(_ entry: io_registry_entry_t) -> DisplayIdentity {
-        var identity = DisplayIdentity()
+    private static func identityFromFramebuffer(_ entry: io_registry_entry_t) -> IORegistryIdentity {
+        var identity = IORegistryIdentity()
         identity.portKey = portKey(from: registryPath(entry)) ?? ""
         if let uuid = cfProperty(entry, "EDID UUID") as? String {
             identity.edidUUID = uuid
@@ -267,9 +277,9 @@ enum DisplayMatcher {
         return identity
     }
 
-    private static func identityFromProductAttributes(_ displayAttributes: [String: Any]) -> DisplayIdentity? {
+    private static func identityFromProductAttributes(_ displayAttributes: [String: Any]) -> IORegistryIdentity? {
         guard let product = displayAttributes["ProductAttributes"] as? [String: Any] else { return nil }
-        var identity = DisplayIdentity()
+        var identity = IORegistryIdentity()
         identity.vendor = u32(product["LegacyManufacturerID"]) ?? 0
         identity.product = u32(product["ProductID"]) ?? 0
         identity.serial = u32(product["SerialNumber"]) ?? 0
@@ -287,7 +297,7 @@ enum DisplayMatcher {
 
     // MARK: - Matching
 
-    private static func matchScore(identity: DisplayIdentity, displayID: CGDirectDisplayID) -> Int {
+    private static func matchScore(identity: IORegistryIdentity, displayID: CGDirectDisplayID) -> Int {
         let vendor = CGDisplayVendorNumber(displayID)
         let product = CGDisplayModelNumber(displayID)
         let serial = CGDisplaySerialNumber(displayID)
@@ -304,8 +314,28 @@ enum DisplayMatcher {
     private static func makeMatch(candidate: AVCandidate, displayID: CGDirectDisplayID) -> MatchedExternalDisplay? {
         guard CGDisplayIsBuiltin(displayID) == 0 else { return nil }
         let name = displayName(productName: candidate.identity.productName, id: displayID)
-        let display = ExternalDisplay(id: displayID, name: name)
+        let display = ExternalDisplay(
+            id: displayID,
+            name: name,
+            identity: candidate.identity.coreIdentity(fallbackDisplayID: displayID),
+            capabilities: DisplayCapabilities()
+        )
         return MatchedExternalDisplay(display: display, service: candidate.service, identity: candidate.identity)
+    }
+
+    /// Online non-built-in CoreGraphics displays.
+    static func onlineExternalDisplayIDs() -> [CGDirectDisplayID] {
+        onlineExternalCGDisplays().map(\.id)
+    }
+
+    static func identityFromCGDisplay(_ id: CGDirectDisplayID, alphanumericSerial: String? = nil) -> DisplayIdentity {
+        let trimmed = alphanumericSerial?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return DisplayIdentity(
+            vendor: CGDisplayVendorNumber(id),
+            product: CGDisplayModelNumber(id),
+            serial: CGDisplaySerialNumber(id),
+            alphanumericSerial: (trimmed?.isEmpty == false) ? trimmed : nil
+        )
     }
 
     static func displayName(productName: String?, id: CGDirectDisplayID) -> String {
@@ -383,7 +413,7 @@ enum DisplayMatcher {
         return unmanaged as Any
     }
 
-    private static func merge(from src: DisplayIdentity, into dest: inout DisplayIdentity) {
+    private static func merge(from src: IORegistryIdentity, into dest: inout IORegistryIdentity) {
         if dest.vendor == 0 { dest.vendor = src.vendor }
         if dest.product == 0 { dest.product = src.product }
         if dest.serial == 0 { dest.serial = src.serial }

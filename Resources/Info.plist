@@ -10,6 +10,8 @@
 	<string>BrightBar</string>
 	<key>CFBundleExecutable</key>
 	<string>BrightBar</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,5 +26,18 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.brightbar.app.url</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>brightbar</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSLocationUsageDescription</key>
+	<string>BrightBar uses your location to compute sunrise and sunset for scheduled brightness changes.</string>
 </dict>
 </plist>

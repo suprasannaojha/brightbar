@@ -3,11 +3,16 @@ import AppKit
 import Foundation
 
 enum AccessibilityPermission {
+    private static var hasRequestedPrompt = false
+
     static var isTrusted: Bool {
         AXIsProcessTrusted()
     }
 
+    /// Shows the system Accessibility prompt at most once per process.
     static func requestPrompt() {
+        guard !hasRequestedPrompt else { return }
+        hasRequestedPrompt = true
         let options = [
             kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true
         ] as CFDictionary

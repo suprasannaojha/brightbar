@@ -1,8 +1,7 @@
 import AppKit
 
-if CommandLine.arguments.contains("--probe") {
-    DDCProbe.runAndPrintReport()
-    exit(0)
+if let code = CLI.run(arguments: CommandLine.arguments) {
+    exit(code)
 }
 
 let app = NSApplication.shared

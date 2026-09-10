@@ -4,6 +4,30 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+VERSION=""
+MAKE_ZIP=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "error: --version requires X.Y.Z" >&2
+        exit 1
+      fi
+      VERSION="$2"
+      shift 2
+      ;;
+    --zip)
+      MAKE_ZIP=true
+      shift
+      ;;
+    *)
+      echo "usage: $0 [--version X.Y.Z] [--zip]" >&2
+      exit 1
+      ;;
+  esac
+done
+
 swift build -c release --arch arm64
 
 BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
@@ -21,6 +45,20 @@ cp "$BIN" "$APP/Contents/MacOS/BrightBar"
 chmod +x "$APP/Contents/MacOS/BrightBar"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+ICON="$ROOT/Resources/AppIcon.icns"
+if [[ -f "$ICON" ]]; then
+  cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
+fi
+
+if [[ -n "$VERSION" ]]; then
+  plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+  BUILD_NUMBER="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || true)"
+  if [[ -z "$BUILD_NUMBER" ]]; then
+    BUILD_NUMBER="1"
+  fi
+  plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP/Contents/Info.plist"
+fi
 
 IDENTITY="${CODESIGN_IDENTITY:-}"
 if [[ -z "$IDENTITY" ]]; then
@@ -47,3 +85,14 @@ echo "Built $APP"
 echo "Run it with:  open $APP"
 echo "Install with: ./scripts/install.sh"
 echo "Or copy:      cp -R \"$APP\" /Applications/"
+
+if [[ "$MAKE_ZIP" == true ]]; then
+  ZIP_VERSION="$VERSION"
+  if [[ -z "$ZIP_VERSION" ]]; then
+    ZIP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+  fi
+  ZIP="$ROOT/build/BrightBar-${ZIP_VERSION}.zip"
+  rm -f "$ZIP"
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+  echo "Created $ZIP"
+fi

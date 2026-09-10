@@ -1,25 +1,29 @@
 import AppKit
 import CoreGraphics
 
-/// Session event tap for the keyboard brightness keys (`NX_SYSDEFINED`).
+/// Session event tap for NX media keys (`NX_SYSDEFINED`).
 ///
 /// Installed on the main run loop. The C callback is therefore already on the
-/// main actor; keep the handler fast (no I/O). Hardware DDC writes are
-/// debounced off-thread by `BrightnessStore`.
+/// main actor; keep `shouldHandle` / `onKey` fast (no I/O). Hardware DDC writes
+/// are debounced off-thread by the store.
 @MainActor
 final class MediaKeyTap {
-    /// macOS brightness has 16 ticks; `100 / 16 = 6.25`. The store is integer, so 6.
+    /// macOS brightness/volume bezels have 16 ticks; `100 / 16 = 6.25`. Integer store → 6.
     static let standardStep: Double = 6
     /// Shift+Option: 1% steps, matching the system brightness-key convention.
     static let fineStep: Double = 1
 
-    enum Direction {
-        case up
-        case down
+    enum MediaKey: Equatable {
+        case brightnessUp
+        case brightnessDown
+        case volumeUp
+        case volumeDown
+        case mute
     }
 
-    var shouldHandleBrightnessKey: () -> ExternalDisplay? = { nil }
-    var onBrightnessKey: (ExternalDisplay, Direction, NSEvent.ModifierFlags) -> Void = { _, _, _ in }
+    /// Return a display to intercept this key; `nil` passes the event through to macOS.
+    var shouldHandle: (MediaKey) -> ExternalDisplay? = { _ in nil }
+    var onKey: (ExternalDisplay, MediaKey, NSEvent.ModifierFlags) -> Void = { _, _, _ in }
 
     private var port: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -98,24 +102,33 @@ final class MediaKeyTap {
         let keyDown = ((keyFlags & 0xFF00) >> 8) == 0x0A
         let isRepeat = (keyFlags & 0x1) == 1
 
-        let direction: Direction
+        let key: MediaKey
         switch keyCode {
+        case 0: // NX_KEYTYPE_SOUND_UP
+            key = .volumeUp
+        case 1: // NX_KEYTYPE_SOUND_DOWN
+            key = .volumeDown
         case 2: // NX_KEYTYPE_BRIGHTNESS_UP
-            direction = .up
+            key = .brightnessUp
         case 3: // NX_KEYTYPE_BRIGHTNESS_DOWN
-            direction = .down
+            key = .brightnessDown
+        case 7: // NX_KEYTYPE_MUTE
+            key = .mute
         default:
             return Unmanaged.passUnretained(event)
         }
 
-        guard let display = shouldHandleBrightnessKey() else {
+        guard let display = shouldHandle(key) else {
             return Unmanaged.passUnretained(event)
         }
 
         // Repeats arrive as extra key-down events (`isRepeat`). Swallow up and down
-        // so macOS does not also change the built-in panel.
-        if keyDown || isRepeat {
-            onBrightnessKey(display, direction, nsEvent.modifierFlags)
+        // so macOS does not also change the built-in panel / system volume.
+        if keyDown {
+            if key == .mute && isRepeat {
+                return nil
+            }
+            onKey(display, key, nsEvent.modifierFlags)
         }
         return nil
     }

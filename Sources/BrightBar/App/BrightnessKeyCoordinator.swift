@@ -1,46 +1,56 @@
 import AppKit
 import Combine
-import CoreGraphics
 import Foundation
 import os
 
-/// Wires brightness-key taps to the display under the cursor and Accessibility state.
+/// Wires NX brightness / volume / mute keys to the display under the cursor and Accessibility state.
 @MainActor
-final class BrightnessKeyCoordinator: ObservableObject {
-    private static let enabledDefaultsKey = "brightnessKeysEnabled"
-    private static let logger = Logger(subsystem: "com.brightbar.app", category: "keys")
+final class MediaKeyCoordinator: ObservableObject {
+    private static let logger = Logger(subsystem: "com.brightbar.app", category: "input")
 
     @Published private(set) var brightnessKeysEnabled: Bool
     @Published var needsAccessibilityPermission = false
 
-    private let store: BrightnessStore
+    private let target: any InputTarget
+    private let settings: SettingsStore
     private let tap = MediaKeyTap()
     private var permissionPollTimer: Timer?
     private var permissionPollDeadline: Date?
+    private var cancellables = Set<AnyCancellable>()
+    private var lastKeysWanted = false
 
-    init(store: BrightnessStore) {
-        self.store = store
-        if UserDefaults.standard.object(forKey: Self.enabledDefaultsKey) == nil {
-            self.brightnessKeysEnabled = true
-        } else {
-            self.brightnessKeysEnabled = UserDefaults.standard.bool(forKey: Self.enabledDefaultsKey)
+    init(target: any InputTarget, settings: SettingsStore) {
+        self.target = target
+        self.settings = settings
+        self.brightnessKeysEnabled = settings.settings.brightnessKeysEnabled
+        self.lastKeysWanted = Self.keysWanted(settings.settings)
+
+        tap.shouldHandle = { [weak self] key in
+            self?.display(for: key)
+        }
+        tap.onKey = { [weak self] display, key, modifiers in
+            self?.handleMediaKey(display: display, key: key, modifiers: modifiers)
         }
 
-        tap.shouldHandleBrightnessKey = { [weak self] in
-            self?.targetDisplay()
-        }
-        tap.onBrightnessKey = { [weak self] display, direction, modifiers in
-            self?.handleBrightnessKey(display: display, direction: direction, modifiers: modifiers)
-        }
+        applyEnabledState(promptIfUntrusted: lastKeysWanted)
 
-        applyEnabledState(promptIfUntrusted: brightnessKeysEnabled)
+        settings.$settings
+            .dropFirst()
+            .sink { [weak self] newSettings in
+                self?.settingsDidChange(newSettings)
+            }
+            .store(in: &cancellables)
     }
 
+    /// Writes into `SettingsStore`; the `$settings` observer applies the tap / permission flow.
+    func setBrightnessKeysEnabled(_ enabled: Bool) {
+        guard settings.settings.brightnessKeysEnabled != enabled else { return }
+        settings.settings.brightnessKeysEnabled = enabled
+    }
+
+    /// Menu-item compatibility wrapper.
     func setEnabled(_ enabled: Bool) {
-        guard brightnessKeysEnabled != enabled else { return }
-        brightnessKeysEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: Self.enabledDefaultsKey)
-        applyEnabledState(promptIfUntrusted: enabled)
+        setBrightnessKeysEnabled(enabled)
     }
 
     /// Re-check trust when the popover opens (no extra prompt).
@@ -51,6 +61,7 @@ final class BrightnessKeyCoordinator: ObservableObject {
     func shutdown() {
         stopPolling()
         tap.stop()
+        cancellables.removeAll()
     }
 
     // MARK: - Target display
@@ -58,52 +69,74 @@ final class BrightnessKeyCoordinator: ObservableObject {
     /// Cursor screen decides. Built-in → pass through. Clamshell with no resolved
     /// screen → first external.
     func targetDisplay() -> ExternalDisplay? {
-        let location = NSEvent.mouseLocation
-        if let screen = NSScreen.screens.first(where: { NSMouseInRect(location, $0.frame, false) }),
-           let id = cgDisplayID(for: screen) {
-            return store.displays.first { $0.id == id }
-        }
-
-        if !hasBuiltinDisplay() {
-            return store.displays.first
-        }
-        return nil
+        InputDisplayLookup.mediaKeyDisplay(from: target.displays)
     }
 
-    private func cgDisplayID(for screen: NSScreen) -> CGDirectDisplayID? {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        if let number = screen.deviceDescription[key] as? NSNumber {
-            return number.uint32Value
-        }
-        return screen.deviceDescription[key] as? CGDirectDisplayID
-    }
+    // MARK: - Key routing
 
-    private func hasBuiltinDisplay() -> Bool {
-        NSScreen.screens.contains { screen in
-            guard let id = cgDisplayID(for: screen) else { return false }
-            return CGDisplayIsBuiltin(id) != 0
+    private func display(for key: MediaKeyTap.MediaKey) -> ExternalDisplay? {
+        switch key {
+        case .brightnessUp, .brightnessDown:
+            guard settings.settings.brightnessKeysEnabled else { return nil }
+            return targetDisplay()
+        case .volumeUp, .volumeDown, .mute:
+            guard settings.settings.volumeKeysEnabled else { return nil }
+            return InputDisplayLookup.mediaKeyVolumeDisplay(from: target.displays)
         }
     }
 
-    // MARK: - Key handling
-
-    private func handleBrightnessKey(
+    private func handleMediaKey(
         display: ExternalDisplay,
-        direction: MediaKeyTap.Direction,
+        key: MediaKeyTap.MediaKey,
         modifiers: NSEvent.ModifierFlags
     ) {
-        let step = MediaKeyTap.step(for: modifiers)
-        let delta = direction == .up ? step : -step
-        let current = store.brightness[display.id] ?? 0
-        store.setBrightness(current + delta, for: display)
-        let value = store.brightness[display.id] ?? current
-        BrightnessOSD.showBrightness(on: display.id, value: value)
+        switch key {
+        case .brightnessUp, .brightnessDown:
+            let step = MediaKeyTap.step(for: modifiers)
+            let delta = key == .brightnessUp ? step : -step
+            let current = target.level(for: display) ?? 0
+            target.setLevel(current + delta, for: display)
+            if settings.settings.showOSD {
+                let value = target.level(for: display) ?? current
+                BrightnessOSD.showBrightness(on: display.id, value: value)
+            }
+        case .volumeUp, .volumeDown:
+            let step = MediaKeyTap.step(for: modifiers)
+            let delta = key == .volumeUp ? step : -step
+            target.adjustVolume(by: delta, for: display)
+            showVolumeOSD(on: display)
+        case .mute:
+            target.toggleMute(for: display)
+            showVolumeOSD(on: display)
+        }
+    }
+
+    private func showVolumeOSD(on display: ExternalDisplay) {
+        guard settings.settings.showOSD else { return }
+        BrightnessOSD.showVolume(
+            on: display.id,
+            value: target.volume(for: display) ?? 0,
+            muted: target.isMuted(for: display) ?? false
+        )
     }
 
     // MARK: - Permission / tap lifecycle
 
+    private static func keysWanted(_ settings: AppSettings) -> Bool {
+        settings.brightnessKeysEnabled || settings.volumeKeysEnabled
+    }
+
+    private func settingsDidChange(_ newSettings: AppSettings) {
+        brightnessKeysEnabled = newSettings.brightnessKeysEnabled
+        let wanted = Self.keysWanted(newSettings)
+        let becameWanted = wanted && !lastKeysWanted
+        lastKeysWanted = wanted
+        applyEnabledState(promptIfUntrusted: becameWanted)
+    }
+
     private func applyEnabledState(promptIfUntrusted: Bool) {
-        guard brightnessKeysEnabled else {
+        let wanted = Self.keysWanted(settings.settings)
+        guard wanted else {
             stopPolling()
             tap.stop()
             needsAccessibilityPermission = false
@@ -114,7 +147,7 @@ final class BrightnessKeyCoordinator: ObservableObject {
             stopPolling()
             needsAccessibilityPermission = false
             if !tap.start() {
-                Self.logger.error("Failed to create brightness key event tap")
+                Self.logger.error("Failed to create media key event tap")
                 needsAccessibilityPermission = true
             }
             return
@@ -155,3 +188,5 @@ final class BrightnessKeyCoordinator: ObservableObject {
         permissionPollDeadline = nil
     }
 }
+
+typealias BrightnessKeyCoordinator = MediaKeyCoordinator

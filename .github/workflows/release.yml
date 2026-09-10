@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Signing: CI uses ad-hoc codesign (CODESIGN_IDENTITY=-) because GitHub-hosted
+# runners have no Developer ID certificate. Maintainers can later replace this
+# with a real Developer ID Application cert imported from GitHub secrets.
+# Secret import is intentionally not implemented here.
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build zip and publish
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build signed zip
+        env:
+          CODESIGN_IDENTITY: "-"
+        run: ./scripts/build.sh --version "${GITHUB_REF_NAME#v}" --zip
+
+      - name: Checksum for Homebrew cask
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="build/BrightBar-${VERSION}.zip"
+          SHA256="$(shasum -a 256 "$ZIP" | awk '{ print $1 }')"
+          {
+            echo "## Cask checksum"
+            echo ""
+            echo "Pin \`Casks/brightbar.rb\` after this release:"
+            echo ""
+            echo "\`\`\`"
+            echo "version \"${VERSION}\""
+            echo "sha256 \"${SHA256}\""
+            echo "\`\`\`"
+            echo ""
+            echo "\`./scripts/update-cask.sh ${VERSION} ${SHA256}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "sha256 ${SHA256}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/BrightBar-*.zip
+          fail_on_unmatched_files: true
