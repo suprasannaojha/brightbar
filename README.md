@@ -29,7 +29,7 @@ Requires an Apple Silicon Mac running macOS 13+. On first launch grant **Accessi
 
 ## How it works
 
-Apple Silicon Macs expose the display's I²C bus via the private `IOAVService` IOKit API; BrightBar sends VCP 0x10 (luminance) commands over it. Software dimming scales the display's gamma table via CoreGraphics and is reverted on quit. Because private APIs are used, it isn't App Store eligible.
+Apple Silicon Macs expose the display's I²C bus via the private `IOAVService` IOKit API; BrightBar sends VCP 0x10 (luminance) commands over it. Software dimming scales the display's gamma table via CoreGraphics and is reverted on quit.
 
 ## License
 
