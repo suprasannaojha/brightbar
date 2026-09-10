@@ -10,10 +10,10 @@ struct AboutSettingsView: View {
         Form {
             Section {
                 VStack(spacing: 10) {
-                    Image(systemName: "sun.max.fill")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.yellow)
-                        .symbolRenderingMode(.hierarchical)
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 96, height: 96)
                         .padding(.top, 8)
 
                     Text("BrightBar")

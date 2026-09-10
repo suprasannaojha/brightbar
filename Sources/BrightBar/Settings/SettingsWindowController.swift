@@ -56,14 +56,36 @@ final class SettingsWindowController: NSObject {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
-        window.makeKeyAndOrderFront(nil)
-        activateApplication()
-        window.makeKey()
 
         if !didCenter {
-            window.center()
+            positionOnActiveScreen(window)
             didCenter = true
         }
+
+        activateApplication()
+        window.makeKeyAndOrderFront(nil)
+        window.makeKey()
+    }
+
+    /// Centre on the screen the user is looking at (the one under the cursor — i.e. where the
+    /// menu bar icon was clicked), slightly above centre like System Settings, instead of on
+    /// whatever screen AppKit considers "main".
+    private func positionOnActiveScreen(_ window: NSWindow) {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else {
+            window.center()
+            return
+        }
+        let visible = screen.visibleFrame
+        let size = window.frame.size
+        let origin = NSPoint(
+            x: visible.midX - size.width / 2,
+            y: visible.midY - size.height / 2 + visible.height * 0.08
+        )
+        window.setFrameOrigin(origin)
     }
 
     private func ensureWindow() -> NSWindow {
@@ -78,20 +100,23 @@ final class SettingsWindowController: NSObject {
             actions: actions
         )
         let hosting = NSHostingController(rootView: root)
-        hosting.sizingOptions = [.preferredContentSize]
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: SettingsMetrics.windowWidth, height: SettingsMetrics.windowHeight),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.title = "BrightBar Settings"
+        window.title = "BrightBar"
+        window.toolbarStyle = .unified
+        window.titlebarSeparatorStyle = .automatic
         window.isReleasedWhenClosed = false
         window.contentViewController = hosting
-        window.contentMinSize = NSSize(width: SettingsMetrics.windowWidth, height: 400)
-        window.contentMaxSize = NSSize(width: SettingsMetrics.windowWidth, height: 900)
-        window.collectionBehavior = [.moveToActiveSpace]
+        window.setContentSize(NSSize(width: SettingsMetrics.windowWidth, height: SettingsMetrics.windowHeight))
+        window.contentMinSize = NSSize(width: SettingsMetrics.windowWidth, height: SettingsMetrics.windowMinHeight)
+        window.contentMaxSize = NSSize(width: 1000, height: 900)
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenNone]
+        window.isMovableByWindowBackground = false
         self.window = window
         return window
     }

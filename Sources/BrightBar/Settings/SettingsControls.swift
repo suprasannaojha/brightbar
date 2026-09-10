@@ -1,8 +1,11 @@
 import SwiftUI
 
 enum SettingsMetrics {
-    static let windowWidth: CGFloat = 560
-    static let windowHeight: CGFloat = 420
+    static let windowWidth: CGFloat = 700
+    static let windowHeight: CGFloat = 480
+    static let windowMinHeight: CGFloat = 420
+    static let sidebarWidth: CGFloat = 180
+    static let detailMinWidth: CGFloat = 460
     static let titleFont = Font.system(size: 13, weight: .semibold)
     static let captionFont = Font.system(size: 11)
 }
