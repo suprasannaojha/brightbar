@@ -1,9 +1,15 @@
 name: Release
 
+# Manual only. Official releases are built and signed locally with a Developer ID
+# (./scripts/build.sh --version X.Y.Z --zip) and uploaded with `gh release create`,
+# so a tag push must not overwrite that asset with an ad-hoc-signed CI build.
+# Use this workflow to produce an unsigned test build for a tag when needed.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v1.0.0)"
+        required: true
 
 # Signing: CI uses ad-hoc codesign (CODESIGN_IDENTITY=-) because GitHub-hosted
 # runners have no Developer ID certificate. Maintainers can later replace this
@@ -21,16 +27,20 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
 
-      - name: Build signed zip
+      - name: Build ad-hoc signed zip
         env:
           CODESIGN_IDENTITY: "-"
-        run: ./scripts/build.sh --version "${GITHUB_REF_NAME#v}" --zip
+          TAG: ${{ inputs.tag }}
+        run: ./scripts/build.sh --version "${TAG#v}" --zip
 
       - name: Checksum for Homebrew cask
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           ZIP="build/BrightBar-${VERSION}.zip"
           SHA256="$(shasum -a 256 "$ZIP" | awk '{ print $1 }')"
           {
@@ -47,8 +57,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "sha256 ${SHA256}"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload test build as workflow artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: build/BrightBar-*.zip
-          fail_on_unmatched_files: true
+          name: BrightBar-${{ inputs.tag }}-adhoc
+          path: build/BrightBar-*.zip
+          if-no-files-found: error

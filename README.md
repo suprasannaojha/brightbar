@@ -22,14 +22,25 @@ Free, open source, native Swift, no Dock icon, no dependencies.
 
 ## Install
 
+**Homebrew**
+
+```bash
+brew tap suprasannaojha/brightbar https://github.com/suprasannaojha/brightbar
+brew install --cask brightbar
+```
+
+**Download** — grab `BrightBar-x.y.z.zip` from [Releases](https://github.com/suprasannaojha/brightbar/releases), unzip, and drag `BrightBar.app` to Applications.
+
+**Build from source**
+
 ```bash
 git clone https://github.com/suprasannaojha/brightbar && cd brightbar
 ./scripts/install.sh        # builds, copies to /Applications, opens the app
 ```
 
-Or with Homebrew: `brew install --cask ./Casks/brightbar.rb`
+Requires an Apple Silicon Mac on macOS 13+.
 
-Requires an Apple Silicon Mac on macOS 13+. On first launch grant **Accessibility** access (System Settings → Privacy & Security) so the brightness keys can be intercepted. Everything else is in **Settings** (gear icon in the popover or right-click the menu bar icon).
+First launch: the app is signed with a Developer ID but not yet notarized, so macOS may say it "could not verify" it — open **System Settings → Privacy & Security** and click **Open Anyway** (once). Then grant **Accessibility** access when asked so the brightness keys can be intercepted. Everything else is in **Settings** (gear icon in the popover, or right-click the menu bar icon).
 
 ## Command line
 
