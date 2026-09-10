@@ -101,6 +101,8 @@ final class BrightnessStore: ObservableObject {
         pendingContrastWrites.removeAll()
         pendingVolumeWrites.values.forEach { $0.cancel() }
         pendingVolumeWrites.removeAll()
+        displayChangeWorkItem?.cancel()
+        displayChangeWorkItem = nil
         wakeRefreshWorkItem?.cancel()
         wakeRefreshWorkItem = nil
         flushPersistedAuxiliaryState()
@@ -263,21 +265,31 @@ final class BrightnessStore: ObservableObject {
     }
 
     func setLevel(_ level: Double, for display: ExternalDisplay, source: LevelChangeSource) {
+        guard level.isFinite else { return }
         let softwareOnly = isSoftwareOnly(display)
         let upper = softwareOnly ? 0 : Self.maximumLevel
         let clamped = min(max(level, Self.minimumLevel), upper)
+        let previous = brightness[display.id]
+        let changed = previous.map { abs($0 - clamped) > 0.0001 } ?? true
         brightness[display.id] = clamped
-        applySoftwareDimmingIfNeeded(clamped, for: display.id)
-        automation?.recordLevel(clamped, for: display)
-        if source == .user {
-            userDidChangeLevelSubject.send((display, clamped))
+        applySoftwareDimmingIfNeeded(clamped, for: display.id, force: source == .restore)
+        if changed {
+            automation?.recordLevel(clamped, for: display)
+            if source == .user {
+                userDidChangeLevelSubject.send((display, clamped))
+            }
+        } else if source == .restore {
+            automation?.recordLevel(clamped, for: display)
         }
 
         if softwareOnly { return }
+        // A no-op user write (CLI `set +0`, duplicate slider events) must not
+        // pause sync or poke DDC. Automation still writes so min/max remaps land.
+        if !changed, source == .user { return }
 
         let ds = settings.display(display.persistentKey)
         let hardwareValue = hardwarePercent(forLevel: clamped, settings: ds)
-        if hardwareTarget[display.id] == hardwareValue, clamped <= 0 {
+        if hardwareTarget[display.id] == hardwareValue, clamped <= 0, source != .restore {
             return
         }
 
@@ -312,6 +324,7 @@ final class BrightnessStore: ObservableObject {
     }
 
     func setContrast(_ percent: Double, for display: ExternalDisplay) {
+        guard percent.isFinite else { return }
         let clamped = min(max(percent, 0), 100)
         contrast[display.id] = clamped
         schedulePersistAuxiliary(for: display)
@@ -335,6 +348,7 @@ final class BrightnessStore: ObservableObject {
     }
 
     func setVolume(_ percent: Double, for display: ExternalDisplay) {
+        guard percent.isFinite else { return }
         let clamped = min(max(percent, 0), 100)
         volume[display.id] = clamped
         schedulePersistAuxiliary(for: display)
@@ -363,6 +377,7 @@ final class BrightnessStore: ObservableObject {
     }
 
     func toggleMute(for display: ExternalDisplay) {
+        guard display.capabilities.supportsAudio else { return }
         if let current = muted[display.id] {
             setMuted(!current, for: display)
             return
@@ -380,8 +395,8 @@ final class BrightnessStore: ObservableObject {
     }
 
     func setMuted(_ isMuted: Bool, for display: ExternalDisplay) {
-        muted[display.id] = isMuted
         guard display.capabilities.supportsAudio else { return }
+        muted[display.id] = isMuted
         let handle = controllerHandle
         hardwareQueue.async {
             _ = handle.controller.setMute(isMuted, for: display)
@@ -424,10 +439,10 @@ final class BrightnessStore: ObservableObject {
         value < 0 ? min(1.0, -value / -Self.minimumLevel) : 0
     }
 
-    private func applySoftwareDimmingIfNeeded(_ value: Double, for displayID: CGDirectDisplayID) {
+    private func applySoftwareDimmingIfNeeded(_ value: Double, for displayID: CGDirectDisplayID, force: Bool = false) {
         let level = softwareLevel(for: value)
         let previous = lastSoftwareLevel[displayID] ?? 0
-        guard abs(level - previous) > 0.005 else { return }
+        guard force || abs(level - previous) > 0.005 else { return }
         lastSoftwareLevel[displayID] = level
         dimmer.setLevel(level, for: displayID)
     }
@@ -472,6 +487,7 @@ final class BrightnessStore: ObservableObject {
         wakeRefreshWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
+                self?.shouldReapplySoftwareDim = true
                 self?.refresh()
             }
         }
@@ -555,22 +571,30 @@ extension BrightnessStore: AutomationTarget {
 
 /// Maps slider level 0...100 onto the display's usable hardware range.
 private func hardwarePercent(forLevel level: Double, settings ds: DisplaySettings) -> Int {
-    let positive = min(max(level, 0), 100)
-    let minB = ds.minBrightness
-    let maxB = max(ds.maxBrightness, minB)
+    let positive = min(max(level.isFinite ? level : 0, 0), 100)
+    let rawMin = ds.minBrightness.isFinite ? ds.minBrightness : 0
+    let rawMax = ds.maxBrightness.isFinite ? ds.maxBrightness : 100
+    let minB = min(rawMin, rawMax)
+    let maxB = max(rawMin, rawMax)
     let mapped = minB + (positive / 100.0) * (maxB - minB)
-    return Int(min(100, max(0, mapped)).rounded())
+    let clamped = min(100, max(0, mapped))
+    guard clamped.isFinite else { return 0 }
+    return Int(clamped.rounded())
 }
 
 /// Inverse of `hardwarePercent` so the slider stays in 0...100.
 private func sliderLevel(fromHardware percent: Double, settings ds: DisplaySettings) -> Double {
-    let minB = ds.minBrightness
-    let maxB = max(ds.maxBrightness, minB)
+    let rawMin = ds.minBrightness.isFinite ? ds.minBrightness : 0
+    let rawMax = ds.maxBrightness.isFinite ? ds.maxBrightness : 100
+    let minB = min(rawMin, rawMax)
+    let maxB = max(rawMin, rawMax)
     let span = maxB - minB
+    let hardware = percent.isFinite ? percent : 0
     if span < 0.5 {
-        return percent >= maxB ? 100 : 0
+        return hardware >= maxB ? 100 : 0
     }
-    let mapped = (percent - minB) / span * 100
+    let mapped = (hardware - minB) / span * 100
+    guard mapped.isFinite else { return 0 }
     return min(100, max(0, mapped))
 }
 

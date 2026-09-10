@@ -239,6 +239,9 @@ enum DirectCommandRunner {
         guard let requested = command.value else {
             return .failure(code: 1, message: "Missing value.")
         }
+        guard requested.isFinite else {
+            return .failure(code: 1, message: "Invalid value.")
+        }
 
         switch DisplaySelector.resolve(command.display, in: displays) {
         case .failure(let reply):

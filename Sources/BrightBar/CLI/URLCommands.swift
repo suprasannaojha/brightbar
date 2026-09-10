@@ -105,22 +105,22 @@ enum URLCommands {
         if trimmed.isEmpty { return nil }
 
         if trimmed.hasPrefix("+-") {
-            guard let magnitude = Double(String(trimmed.dropFirst(2))) else { return nil }
+            guard let magnitude = Double(String(trimmed.dropFirst(2))), magnitude.isFinite else { return nil }
             return (-magnitude, true)
         }
 
         let plusWasSpace = original.hasPrefix(" ") && !trimmed.hasPrefix("-") && !trimmed.hasPrefix("+")
         if plusWasSpace {
-            guard let value = Double(trimmed) else { return nil }
+            guard let value = Double(trimmed), value.isFinite else { return nil }
             return (value, true)
         }
 
         if trimmed.hasPrefix("+") {
-            guard let value = Double(trimmed) else { return nil }
+            guard let value = Double(trimmed), value.isFinite else { return nil }
             return (value, true)
         }
 
-        guard let value = Double(trimmed) else { return nil }
+        guard let value = Double(trimmed), value.isFinite else { return nil }
         return (value, forceRelative)
     }
 

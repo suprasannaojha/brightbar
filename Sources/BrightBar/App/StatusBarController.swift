@@ -41,7 +41,10 @@ final class StatusBarController: NSObject {
 
     func openSettings(tab: SettingsTab? = nil) {
         if popover.isShown {
+            let animates = popover.animates
+            popover.animates = false
             popover.performClose(nil)
+            popover.animates = animates
         }
         settingsWindow.show(tab: tab)
     }
@@ -110,7 +113,8 @@ final class StatusBarController: NSObject {
         button.image = image
 
         if settings.settings.showPercentInMenuBar {
-            button.title = String(format: "  %d%%", Int(average.rounded()))
+            let percent = average.isFinite ? Int(average.rounded()) : 0
+            button.title = String(format: "  %d%%", percent)
             button.imagePosition = .imageLeading
             button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         } else {

@@ -10,6 +10,7 @@ enum SettingsMetrics {
 enum SettingsFormatting {
     /// Percent label using U+2212 for negatives (no plus sign).
     static func percent(_ value: Double) -> String {
+        guard value.isFinite else { return "0%" }
         let n = Int(value.rounded())
         if n < 0 {
             return "\u{2212}\(abs(n))%"
@@ -19,6 +20,7 @@ enum SettingsFormatting {
 
     /// Offset-style percent: −12% / 0% / +12%.
     static func signedPercent(_ value: Double) -> String {
+        guard value.isFinite else { return "0%" }
         let n = Int(value.rounded())
         if n < 0 {
             return "\u{2212}\(abs(n))%"

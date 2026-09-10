@@ -82,7 +82,9 @@ final class BuiltinSyncEngine {
     func syncNow() {
         guard isRunning, let value = readBuiltin() else { return }
         lastBuiltin = value
-        apply(builtin: value)
+        // Force a write so a min/max (hardware range) edit still reaches DDC even
+        // when the slider-space percent did not change.
+        apply(builtin: value, force: true)
     }
 
     // MARK: - Polling
@@ -135,24 +137,24 @@ final class BuiltinSyncEngine {
 
     // MARK: - Mapping
 
-    /// Map a built-in 0...1 reading onto one display's -50...100 range.
+    /// Map a built-in 0...1 reading onto slider space (−50...100).
     ///
     /// `x` is the normalised built-in brightness.
     /// `y = x^γ` (`syncCurve`): γ = 1 is linear; γ < 1 lifts dark ALS readings;
     /// γ > 1 keeps the external dimmer until the built-in is quite bright.
-    /// `percent = 100y + syncOffset`, then clamped to `[minBrightness, maxBrightness]`.
+    /// `percent = 100y + syncOffset`, then clamped to slider space. Hardware
+    /// min/max mapping happens in `BrightnessStore.setLevel` — do not clamp
+    /// to `minBrightness`/`maxBrightness` here or the range is applied twice.
     static func mappedPercent(builtin xRaw: Float, settings: DisplaySettings) -> Double {
         let x = min(max(Double(xRaw), 0), 1)
         let gamma = min(max(settings.syncCurve, 0.25), 4)
         let y = pow(x, gamma)
         let offset = min(max(settings.syncOffset, -50), 50)
         let percent = y * 100 + offset
-        let lo = min(settings.minBrightness, settings.maxBrightness)
-        let hi = max(settings.minBrightness, settings.maxBrightness)
-        return min(max(percent, lo), hi)
+        return min(max(percent, -50), 100)
     }
 
-    private func apply(builtin: Float) {
+    private func apply(builtin: Float, force: Bool = false) {
         guard let target else { return }
         let now = Date()
         for display in target.displays where isSynced(display) {
@@ -161,7 +163,7 @@ final class BuiltinSyncEngine {
             }
             let ds = settings.display(display.persistentKey)
             let percent = Self.mappedPercent(builtin: builtin, settings: ds)
-            enqueueWrite(percent, for: display)
+            enqueueWrite(percent, for: display, force: force)
         }
     }
 
@@ -173,14 +175,14 @@ final class BuiltinSyncEngine {
 
     // MARK: - Coalesced writes (≤ 1 per display per 100 ms)
 
-    private func enqueueWrite(_ percent: Double, for display: ExternalDisplay) {
+    private func enqueueWrite(_ percent: Double, for display: ExternalDisplay, force: Bool = false) {
         guard let target else { return }
-        if let current = target.currentLevel(for: display), abs(current - percent) < Self.levelDelta {
+        if !force, let current = target.currentLevel(for: display), abs(current - percent) < Self.levelDelta {
             return
         }
         let key = display.persistentKey
         let now = Date()
-        if let last = lastWriteAt[key], now.timeIntervalSince(last) < Self.coalesceInterval {
+        if !force, let last = lastWriteAt[key], now.timeIntervalSince(last) < Self.coalesceInterval {
             pendingPercent[key] = (display, percent)
             if coalesceTimers[key] == nil {
                 let wait = max(0.001, Self.coalesceInterval - now.timeIntervalSince(last))

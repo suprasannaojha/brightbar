@@ -39,13 +39,25 @@ final class RemoteCommandServer {
 
     @MainActor
     private static func process(payload: String?, replyTo: String?, handler: HandlerBox) async {
-        guard let payload, let replyTo else { return }
-        guard let data = payload.data(using: .utf8),
-              let command = try? JSONDecoder().decode(RemoteCommand.self, from: data)
-        else { return }
-
-        let reply = await handler.call(command)
-        guard let json = RemoteIPC.encode(reply) else { return }
+        guard let replyTo else { return }
+        let reply: RemoteReply
+        if let payload,
+           let data = payload.data(using: .utf8),
+           let command = try? JSONDecoder().decode(RemoteCommand.self, from: data) {
+            reply = await handler.call(command)
+        } else {
+            reply = .failure(code: 1, message: "Invalid command.")
+        }
+        guard let json = RemoteIPC.encode(reply) else {
+            let fallback = RemoteIPC.encode(.failure(code: 3, message: "Failed to encode reply.")) ?? #"{"ok":false,"message":"Failed to encode reply.","payload":"","code":3}"#
+            DistributedNotificationCenter.default().postNotificationName(
+                RemoteIPC.replyName(replyTo),
+                object: nil,
+                userInfo: [RemoteIPC.payloadKey: fallback],
+                deliverImmediately: true
+            )
+            return
+        }
 
         DistributedNotificationCenter.default().postNotificationName(
             RemoteIPC.replyName(replyTo),

@@ -133,11 +133,23 @@ struct PopoverView: View {
 
     private func inputMenu(for display: ExternalDisplay) -> some View {
         let code = store.inputSource[display.id]
-        let title = code.flatMap { InputSource(rawValue: $0)?.displayName } ?? "Input"
+        let title: String = {
+            guard let code else { return "Input" }
+            if let named = InputSource(rawValue: code) {
+                return named.displayName
+            }
+            return InputSourceParser.describe(code)
+        }()
         return Menu {
             ForEach(InputSource.common) { source in
-                Button(source.displayName) {
+                Button {
                     store.setInputSource(source.rawValue, for: display)
+                } label: {
+                    if code == source.rawValue {
+                        Label(source.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(source.displayName)
+                    }
                 }
             }
         } label: {
@@ -307,6 +319,7 @@ struct PopoverView: View {
     // MARK: Helpers
 
     private func percentLabel(_ percent: Double) -> String {
+        guard percent.isFinite else { return "0%" }
         let n = Int(percent.rounded())
         return n < 0 ? "−\(abs(n))%" : "\(n)%"
     }

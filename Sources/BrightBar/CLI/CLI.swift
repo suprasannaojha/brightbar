@@ -31,7 +31,8 @@ enum CLI {
       set +10                      Relative step; +-10 decreases brightness
       set --property contrast 50   Contrast / volume are 0...100
 
-    Install the `brightbar` command: BrightBar → Settings → General, or run: ln -s /Applications/BrightBar.app/Contents/MacOS/BrightBar /usr/local/bin/brightbar
+    Install the `brightbar` command: BrightBar → Settings → General, or run:
+      ln -s /Applications/BrightBar.app/Contents/MacOS/BrightBar /usr/local/bin/brightbar
     """
 
     /// Returns nil when this process should start the GUI. Otherwise an exit code.
@@ -272,14 +273,14 @@ enum CLI {
         if trimmed.isEmpty { return nil }
 
         if trimmed.hasPrefix("+-") {
-            guard let magnitude = Double(String(trimmed.dropFirst(2))) else { return nil }
+            guard let magnitude = Double(String(trimmed.dropFirst(2))), magnitude.isFinite else { return nil }
             return (-magnitude, true)
         }
         if trimmed.hasPrefix("+") {
-            guard let value = Double(trimmed) else { return nil }
+            guard let value = Double(trimmed), value.isFinite else { return nil }
             return (value, true)
         }
-        guard let value = Double(trimmed) else { return nil }
+        guard let value = Double(trimmed), value.isFinite else { return nil }
         if value < 0 && property != .brightness {
             return (value, true)
         }
@@ -287,6 +288,9 @@ enum CLI {
     }
 
     private static func validateSetValue(_ value: Double, relative: Bool, property: RemoteCommand.Property) -> String? {
+        guard value.isFinite else {
+            return "Invalid value."
+        }
         if relative {
             if value < -100 || value > 100 {
                 return "Relative step must be between -100 and 100."

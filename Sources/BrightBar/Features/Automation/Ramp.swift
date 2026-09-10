@@ -27,8 +27,8 @@ final class RampAnimator {
         cancel(display)
         guard let target else { return }
         let start = target.currentLevel(for: display) ?? 0
-        if duration <= 0 || abs(level - start) < 0.5 {
-            target.setLevel(level, for: display, source: source)
+        if !duration.isFinite || duration <= 0 || !level.isFinite || abs(level - start) < 0.5 {
+            target.setLevel(level.isFinite ? level : start, for: display, source: source)
             return
         }
 

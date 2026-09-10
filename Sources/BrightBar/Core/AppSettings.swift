@@ -176,7 +176,9 @@ final class SettingsStore: ObservableObject {
     /// Mutate a display's settings in place (creating them on first use).
     func updateDisplay(_ key: String, _ mutate: (inout DisplaySettings) -> Void) {
         var value = settings.displays[key] ?? DisplaySettings()
+        let before = value
         mutate(&value)
+        if before == value, settings.displays[key] != nil { return }
         settings.displays[key] = value
     }
 

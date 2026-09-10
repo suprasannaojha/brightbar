@@ -34,7 +34,10 @@ extension BrightnessStore {
                     id: display.id,
                     persistentKey: display.persistentKey,
                     capabilities: CLIFormat.capabilityTags(display.capabilities),
-                    brightness: brightness[display.id].map { Int($0.rounded()) }
+                    brightness: brightness[display.id].flatMap { value in
+                        guard value.isFinite else { return nil }
+                        return Int(min(Self.maximumLevel, max(Self.minimumLevel, value)).rounded())
+                    }
                 )
             )
         }
@@ -65,6 +68,9 @@ extension BrightnessStore {
         }
         guard let requested = command.value else {
             return .failure(code: 1, message: "Missing value.")
+        }
+        guard requested.isFinite else {
+            return .failure(code: 1, message: "Invalid value.")
         }
 
         switch DisplaySelector.resolve(command.display, in: displays) {
@@ -187,7 +193,7 @@ extension BrightnessStore {
     private func read(_ property: RemoteCommand.Property, on display: ExternalDisplay) -> PropertyReadPayload? {
         switch property {
         case .brightness:
-            guard let value = brightness[display.id] else { return nil }
+            guard let value = brightness[display.id], value.isFinite else { return nil }
             return PropertyReadPayload(
                 name: display.name,
                 id: display.id,
@@ -196,7 +202,7 @@ extension BrightnessStore {
                 code: nil
             )
         case .contrast:
-            guard let value = contrast[display.id] else { return nil }
+            guard let value = contrast[display.id], value.isFinite else { return nil }
             return PropertyReadPayload(
                 name: display.name,
                 id: display.id,
@@ -205,7 +211,7 @@ extension BrightnessStore {
                 code: nil
             )
         case .volume:
-            guard let value = volume[display.id] else { return nil }
+            guard let value = volume[display.id], value.isFinite else { return nil }
             return PropertyReadPayload(
                 name: display.name,
                 id: display.id,
@@ -235,11 +241,14 @@ extension BrightnessStore {
     }
 
     private func numericValue(_ property: RemoteCommand.Property, on display: ExternalDisplay) -> Double? {
+        let value: Double?
         switch property {
-        case .brightness: return brightness[display.id]
-        case .contrast: return contrast[display.id]
-        case .volume: return volume[display.id]
+        case .brightness: value = brightness[display.id]
+        case .contrast: value = contrast[display.id]
+        case .volume: value = volume[display.id]
         case .mute, .input: return nil
         }
+        guard let value, value.isFinite else { return nil }
+        return value
     }
 }

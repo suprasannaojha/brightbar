@@ -129,6 +129,7 @@ final class MediaKeyCoordinator: ObservableObject {
     private func settingsDidChange(_ newSettings: AppSettings) {
         brightnessKeysEnabled = newSettings.brightnessKeysEnabled
         let wanted = Self.keysWanted(newSettings)
+        guard wanted != lastKeysWanted else { return }
         let becameWanted = wanted && !lastKeysWanted
         lastKeysWanted = wanted
         applyEnabledState(promptIfUntrusted: becameWanted)

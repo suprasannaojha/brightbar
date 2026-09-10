@@ -174,7 +174,9 @@ final class RestoreEngine {
 
     private func restore(_ display: ExternalDisplay) {
         let ds = settings.display(display.persistentKey)
-        if let brightness = ds.lastBrightness {
+        // Sync owns brightness for `.syncWithBuiltin`; writing lastBrightness
+        // here would stomp the ALS mapping a moment after reconnect/wake.
+        if ds.brightnessMode != .syncWithBuiltin, let brightness = ds.lastBrightness {
             target?.setLevel(brightness, for: display, source: .restore)
         }
         if let contrast = ds.lastContrast {

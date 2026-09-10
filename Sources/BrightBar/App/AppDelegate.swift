@@ -17,18 +17,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.start()
         automationEngine = engine
 
-        let server = RemoteCommandServer { command in
-            await store.handle(command)
+        let server = RemoteCommandServer { [weak store] command in
+            guard let store else {
+                return .failure(code: 3, message: "BrightBar is shutting down.")
+            }
+            return await store.handle(command)
         }
         server.start()
         commandServer = server
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let store = statusBarController?.store else { return }
-        for url in urls {
-            guard let command = URLCommands.parse(url) else { continue }
-            Task { @MainActor in
+        Task { @MainActor in
+            guard let store = self.statusBarController?.store else { return }
+            for url in urls {
+                guard let command = URLCommands.parse(url) else { continue }
                 _ = await store.handle(command)
             }
         }

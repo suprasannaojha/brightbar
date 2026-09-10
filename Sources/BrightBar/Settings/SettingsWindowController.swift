@@ -56,8 +56,9 @@ final class SettingsWindowController: NSObject {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
-        activateApplication()
         window.makeKeyAndOrderFront(nil)
+        activateApplication()
+        window.makeKey()
 
         if !didCenter {
             window.center()
