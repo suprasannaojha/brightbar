@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+swift build -c release --arch arm64
+
+BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
+BIN="$BIN_DIR/BrightBar"
+if [[ ! -f "$BIN" ]]; then
+  echo "error: release binary not found at $BIN" >&2
+  exit 1
+fi
+
+APP="$ROOT/build/BrightBar.app"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+cp "$BIN" "$APP/Contents/MacOS/BrightBar"
+chmod +x "$APP/Contents/MacOS/BrightBar"
+cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+IDENTITY="${CODESIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+  identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+  if echo "$identities" | grep -F "Developer ID Application" >/dev/null; then
+    IDENTITY="$(echo "$identities" | grep -F "Developer ID Application" | head -n 1 | sed -n 's/.*"\(.*\)"/\1/p')"
+  elif echo "$identities" | grep -F "Apple Development" >/dev/null; then
+    IDENTITY="$(echo "$identities" | grep -F "Apple Development" | head -n 1 | sed -n 's/.*"\(.*\)"/\1/p')"
+  else
+    IDENTITY="-"
+  fi
+fi
+if [[ -z "$IDENTITY" ]]; then
+  IDENTITY="-"
+fi
+
+echo "Signing with identity: $IDENTITY"
+if ! codesign --force --deep --options runtime --timestamp=none --sign "$IDENTITY" "$APP"; then
+  echo "warning: codesign with --options runtime failed; retrying without hardened runtime" >&2
+  codesign --force --deep --timestamp=none --sign "$IDENTITY" "$APP"
+fi
+
+echo "Built $APP"
+echo "Run it with:  open $APP"
+echo "Install with: ./scripts/install.sh"
+echo "Or copy:      cp -R \"$APP\" /Applications/"
