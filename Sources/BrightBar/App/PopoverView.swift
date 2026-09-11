@@ -265,7 +265,7 @@ struct PopoverView: View {
 
     private var footer: some View {
         VStack(spacing: 8) {
-            if !settings.settings.presets.isEmpty {
+            if !store.displays.isEmpty, !settings.settings.presets.isEmpty {
                 presetChips
             }
             Divider().opacity(0.6)

@@ -106,7 +106,7 @@ struct HotkeyBindings: Codable, Equatable {
 
 // MARK: - Root model
 
-struct AppSettings: Codable, Equatable {
+struct AppSettings: Equatable {
     // Keys & input
     var brightnessKeysEnabled: Bool = true
     var volumeKeysEnabled: Bool = true
@@ -117,6 +117,7 @@ struct AppSettings: Codable, Equatable {
     var iconReflectsBrightness: Bool = true
     var showPercentInMenuBar: Bool = false
     var showOSD: Bool = true
+    var hideIconWhenNoDisplays: Bool = true
 
     // Behaviour
     var restoreOnWake: Bool = true
@@ -134,6 +135,41 @@ struct AppSettings: Codable, Equatable {
         Preset(name: "Evening", brightness: 40, contrast: nil, hotkey: nil),
         Preset(name: "Night", brightness: -20, contrast: nil, hotkey: nil),
     ]
+}
+
+extension AppSettings: Codable {
+    enum CodingKeys: String, CodingKey {
+        case brightnessKeysEnabled
+        case volumeKeysEnabled
+        case scrollWheelOnMenuBarIcon
+        case hotkeys
+        case iconReflectsBrightness
+        case showPercentInMenuBar
+        case showOSD
+        case hideIconWhenNoDisplays
+        case restoreOnWake
+        case restoreOnReconnect
+        case presets
+        case schedule
+        case displays
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        brightnessKeysEnabled = try container.decodeIfPresent(Bool.self, forKey: .brightnessKeysEnabled) ?? true
+        volumeKeysEnabled = try container.decodeIfPresent(Bool.self, forKey: .volumeKeysEnabled) ?? true
+        scrollWheelOnMenuBarIcon = try container.decodeIfPresent(Bool.self, forKey: .scrollWheelOnMenuBarIcon) ?? true
+        hotkeys = try container.decodeIfPresent(HotkeyBindings.self, forKey: .hotkeys) ?? HotkeyBindings()
+        iconReflectsBrightness = try container.decodeIfPresent(Bool.self, forKey: .iconReflectsBrightness) ?? true
+        showPercentInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .showPercentInMenuBar) ?? false
+        showOSD = try container.decodeIfPresent(Bool.self, forKey: .showOSD) ?? true
+        hideIconWhenNoDisplays = try container.decodeIfPresent(Bool.self, forKey: .hideIconWhenNoDisplays) ?? true
+        restoreOnWake = try container.decodeIfPresent(Bool.self, forKey: .restoreOnWake) ?? true
+        restoreOnReconnect = try container.decodeIfPresent(Bool.self, forKey: .restoreOnReconnect) ?? true
+        presets = try container.decodeIfPresent([Preset].self, forKey: .presets) ?? AppSettings.defaultPresets
+        schedule = try container.decodeIfPresent(ScheduleSettings.self, forKey: .schedule) ?? ScheduleSettings()
+        displays = try container.decodeIfPresent([String: DisplaySettings].self, forKey: .displays) ?? [:]
+    }
 }
 
 // MARK: - Store

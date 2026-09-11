@@ -6,6 +6,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var commandServer: RemoteCommandServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MoveToApplications.promptIfNeeded()
+        // Dry-run is for install-path tests; skip the status bar so we never touch DDC.
+        if ProcessInfo.processInfo.environment["BRIGHTBAR_MOVE_DRY_RUN"] == "1" {
+            return
+        }
+
         let controller: BrightnessController = DDCBrightnessController()
         let settings = SettingsStore.shared
         let statusBar = StatusBarController(controller: controller, settings: settings)
@@ -35,6 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 _ = await store.handle(command)
             }
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        statusBarController?.revealTemporarily()
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {

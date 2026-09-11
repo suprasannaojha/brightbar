@@ -14,13 +14,13 @@ final class StatusBarController: NSObject {
     private var scrollMonitor: StatusItemScrollMonitor?
     private var cancellables = Set<AnyCancellable>()
 
-    private lazy var settingsWindow: SettingsWindowController = {
-        SettingsWindowController(
-            settings: settings,
-            displaysProvider: { [weak self] in self?.store.displays ?? [] },
-            actions: makeSettingsActions()
-        )
-    }()
+    private static let hasLaunchedBeforeKey = "com.brightbar.hasLaunchedBefore"
+    private let forceIconVisibleThisSession: Bool
+    private var displaysEmptyForIcon = false
+    private var temporarilyVisible = false
+    private var temporaryRevealDuration: TimeInterval = 20
+    private var hideAfterRevealWorkItem: DispatchWorkItem?
+    private var settingsWindowController: SettingsWindowController?
 
     init(controller: BrightnessController, settings: SettingsStore) {
         let store = BrightnessStore(controller: controller, settings: settings)
@@ -29,10 +29,19 @@ final class StatusBarController: NSObject {
         self.keyCoordinator = MediaKeyCoordinator(target: store, settings: settings)
         self.hotkeyManager = HotkeyManager(target: store, settings: settings)
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        let defaults = UserDefaults.standard
+        let isFirstLaunch = defaults.object(forKey: Self.hasLaunchedBeforeKey) == nil
+        self.forceIconVisibleThisSession = isFirstLaunch
+        if isFirstLaunch {
+            defaults.set(true, forKey: Self.hasLaunchedBeforeKey)
+        }
+
         super.init()
         configurePopover()
         configureStatusItem()
         observeAppearance()
+        observeIconVisibility()
         hotkeyManager.start()
         if let button = statusItem.button {
             scrollMonitor = StatusItemScrollMonitor(button: button, target: store, settings: settings)
@@ -40,16 +49,32 @@ final class StatusBarController: NSObject {
     }
 
     func openSettings(tab: SettingsTab? = nil) {
+        let window = makeSettingsWindowIfNeeded()
+        window.show(tab: tab)
         if popover.isShown {
             let animates = popover.animates
             popover.animates = false
             popover.performClose(nil)
             popover.animates = animates
         }
-        settingsWindow.show(tab: tab)
+        updateIconVisibility()
+    }
+
+    /// Shows the menu bar icon and popover, then hides again `seconds` after the popover closes.
+    func revealTemporarily(seconds: TimeInterval = 20) {
+        temporaryRevealDuration = seconds
+        temporarilyVisible = true
+        hideAfterRevealWorkItem?.cancel()
+        hideAfterRevealWorkItem = nil
+        updateIconVisibility()
+        DispatchQueue.main.async { [weak self] in
+            self?.showPopover()
+        }
     }
 
     func shutdown() {
+        hideAfterRevealWorkItem?.cancel()
+        hideAfterRevealWorkItem = nil
         hotkeyManager.stop()
         scrollMonitor?.invalidate()
         scrollMonitor = nil
@@ -74,6 +99,7 @@ final class StatusBarController: NSObject {
         popover.contentViewController = hostingController
         popover.behavior = .transient
         popover.animates = true
+        popover.delegate = self
     }
 
     private func configureStatusItem() {
@@ -91,6 +117,52 @@ final class StatusBarController: NSObject {
                 self?.updateStatusItemAppearance()
             }
             .store(in: &cancellables)
+    }
+
+    private func observeIconVisibility() {
+        store.$displays
+            .map(\.isEmpty)
+            .removeDuplicates()
+            .debounce(for: .seconds(1.5), scheduler: RunLoop.main)
+            .sink { [weak self] isEmpty in
+                self?.displaysEmptyForIcon = isEmpty
+                self?.updateIconVisibility()
+            }
+            .store(in: &cancellables)
+
+        settings.$settings
+            .map(\.hideIconWhenNoDisplays)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.updateIconVisibility()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateIconVisibility() {
+        let hideBecauseEmpty = displaysEmptyForIcon
+            && settings.settings.hideIconWhenNoDisplays
+            && !forceIconVisibleThisSession
+        let keepVisible = temporarilyVisible
+            || popover.isShown
+            || (settingsWindowController?.isPresented ?? false)
+        statusItem.isVisible = !hideBecauseEmpty || keepVisible
+    }
+
+    private func makeSettingsWindowIfNeeded() -> SettingsWindowController {
+        if let settingsWindowController {
+            return settingsWindowController
+        }
+        let controller = SettingsWindowController(
+            settings: settings,
+            displaysProvider: { [weak self] in self?.store.displays ?? [] },
+            actions: makeSettingsActions()
+        )
+        controller.onVisibilityChange = { [weak self] in
+            self?.updateIconVisibility()
+        }
+        settingsWindowController = controller
+        return controller
     }
 
     private func updateStatusItemAppearance() {
@@ -146,13 +218,19 @@ final class StatusBarController: NSObject {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            store.refresh()
-            keyCoordinator.handlePopoverOpened()
-            // Accessory apps need an explicit activate so slider drags reach the popover.
-            NSApp.activate(ignoringOtherApps: true)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            showPopover()
         }
+    }
+
+    private func showPopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown { return }
+        store.refresh()
+        keyCoordinator.handlePopoverOpened()
+        // Accessory apps need an explicit activate so slider drags reach the popover.
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
     private func showContextMenu(from button: NSStatusBarButton) {
@@ -333,5 +411,30 @@ final class StatusBarController: NSObject {
 
     @objc private func quit(_ sender: Any?) {
         NSApp.terminate(nil)
+    }
+
+    private func scheduleHideAfterTemporaryReveal() {
+        hideAfterRevealWorkItem?.cancel()
+        guard temporarilyVisible else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.temporarilyVisible = false
+            self.updateIconVisibility()
+        }
+        hideAfterRevealWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + temporaryRevealDuration, execute: work)
+    }
+}
+
+extension StatusBarController: NSPopoverDelegate {
+    func popoverDidShow(_ notification: Notification) {
+        hideAfterRevealWorkItem?.cancel()
+        hideAfterRevealWorkItem = nil
+        updateIconVisibility()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        updateIconVisibility()
+        scheduleHideAfterTemporaryReveal()
     }
 }

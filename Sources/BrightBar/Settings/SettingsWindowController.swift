@@ -36,6 +36,9 @@ final class SettingsWindowController: NSObject {
     private var window: NSWindow?
     private var didCenter = false
 
+    var onVisibilityChange: (() -> Void)?
+    private(set) var isPresented = false
+
     init(
         settings: SettingsStore,
         displaysProvider: @escaping () -> [ExternalDisplay],
@@ -65,6 +68,8 @@ final class SettingsWindowController: NSObject {
         activateApplication()
         window.makeKeyAndOrderFront(nil)
         window.makeKey()
+        isPresented = true
+        onVisibilityChange?()
     }
 
     /// Centre on the screen the user is looking at (the one under the cursor — i.e. where the
@@ -117,6 +122,7 @@ final class SettingsWindowController: NSObject {
         window.contentMaxSize = NSSize(width: 1000, height: 900)
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenNone]
         window.isMovableByWindowBackground = false
+        window.delegate = self
         self.window = window
         return window
     }
@@ -127,5 +133,22 @@ final class SettingsWindowController: NSObject {
         } else {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+}
+
+extension SettingsWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        isPresented = false
+        onVisibilityChange?()
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        isPresented = false
+        onVisibilityChange?()
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        isPresented = true
+        onVisibilityChange?()
     }
 }

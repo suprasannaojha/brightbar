@@ -39,6 +39,16 @@ struct GeneralSettingsView: View {
                 Toggle("Menu bar icon reflects brightness", isOn: settings.binding(\.iconReflectsBrightness))
                 Toggle("Show percentage in menu bar", isOn: settings.binding(\.showPercentInMenuBar))
                 Toggle("Show on-screen indicator", isOn: settings.binding(\.showOSD))
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle(
+                        "Hide menu bar icon when no external display is connected",
+                        isOn: settings.binding(\.hideIconWhenNoDisplays)
+                    )
+                    Text("BrightBar keeps running and the icon returns when a monitor is connected. Open BrightBar from Applications to show it temporarily.")
+                        .font(SettingsMetrics.captionFont)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("Behaviour") {
