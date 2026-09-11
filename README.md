@@ -41,7 +41,7 @@ git clone https://github.com/suprasannaojha/brightbar && cd brightbar
 
 Requires an Apple Silicon Mac on macOS 13+.
 
-First launch: the app is signed with a Developer ID but not yet notarized, so macOS may say it "could not verify" it — open **System Settings → Privacy & Security** and click **Open Anyway** (once). Then grant **Accessibility** access when asked so the brightness keys can be intercepted. Everything else is in **Settings** (gear icon in the popover, or right-click the menu bar icon).
+Releases are signed with a Developer ID and notarized by Apple, so they open without warnings. On first launch grant **Accessibility** access when asked so the brightness keys can be intercepted. Everything else is in **Settings** (gear icon in the popover, or right-click the menu bar icon).
 
 ## Command line
 

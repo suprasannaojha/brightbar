@@ -1,9 +1,9 @@
 cask "brightbar" do
-  version "1.0.0"
+  version "1.0.1"
   # Pin after the first GitHub Release:
   #   shasum -a 256 BrightBar-<version>.zip
   #   ./scripts/update-cask.sh <version> <sha256>
-  sha256 "e41a79a0e7c1f699c92ca738f79f5ea35b7c43231d6e76d1d0be08e89fcfdc45"
+  sha256 "9f27cbef91db05b1ff5878561ce762255409ff3afcdbb6e5ef0c47103a2b8f2e"
 
   url "https://github.com/suprasannaojha/brightbar/releases/download/v#{version}/BrightBar-#{version}.zip"
   name "BrightBar"

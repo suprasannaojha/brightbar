@@ -86,10 +86,16 @@ then
 fi
 
 echo "Signing with identity: ${IDENTITY}"
-if ! codesign --force --deep --options runtime --timestamp=none --sign "${IDENTITY}" "${APP}"
+# Notarization requires a secure timestamp from Apple's server; ad-hoc signatures cannot have one.
+TIMESTAMP_FLAG="--timestamp"
+if [[ "${IDENTITY}" == "-" ]]
+then
+  TIMESTAMP_FLAG="--timestamp=none"
+fi
+if ! codesign --force --deep --options runtime "${TIMESTAMP_FLAG}" --sign "${IDENTITY}" "${APP}"
 then
   echo "warning: codesign with --options runtime failed; retrying without hardened runtime" >&2
-  codesign --force --deep --timestamp=none --sign "${IDENTITY}" "${APP}"
+  codesign --force --deep "${TIMESTAMP_FLAG}" --sign "${IDENTITY}" "${APP}"
 fi
 
 echo "Built ${APP}"

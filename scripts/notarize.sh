@@ -76,9 +76,24 @@ fi
 echo "Submitting ${ZIP} to Apple notary service..."
 if [[ "${HAVE_ENV}" -eq 1 ]]
 then
-  xcrun notarytool submit "${ZIP}" --wait --apple-id "${APPLE_ID}" --team-id "${TEAM_ID}" --password "${APP_PASSWORD}"
+  AUTH_ARGS=(--apple-id "${APPLE_ID}" --team-id "${TEAM_ID}" --password "${APP_PASSWORD}")
 else
-  xcrun notarytool submit "${ZIP}" --wait --keychain-profile "${PROFILE}"
+  AUTH_ARGS=(--keychain-profile "${PROFILE}")
+fi
+
+SUBMIT_OUT="$(xcrun notarytool submit "${ZIP}" --wait "${AUTH_ARGS[@]}" 2>&1 | tee /dev/stderr)"
+SUBMISSION_ID="$(printf '%s\n' "${SUBMIT_OUT}" | awk '/^  id: /{print $2; exit}')"
+FINAL_STATUS="$(printf '%s\n' "${SUBMIT_OUT}" | awk '/^  status: /{s=$2} END{print s}')"
+
+if [[ "${FINAL_STATUS}" != "Accepted" ]]
+then
+  echo "" >&2
+  echo "error: notarization finished with status '${FINAL_STATUS:-unknown}'. Apple's log:" >&2
+  if [[ -n "${SUBMISSION_ID}" ]]
+  then
+    xcrun notarytool log "${SUBMISSION_ID}" "${AUTH_ARGS[@]}" >&2 || true
+  fi
+  exit 1
 fi
 
 APP="${ROOT}/build/BrightBar.app"
