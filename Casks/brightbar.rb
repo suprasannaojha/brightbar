@@ -10,12 +10,13 @@ cask "brightbar" do
   desc "Control external monitor brightness from the menu bar"
   homepage "https://github.com/suprasannaojha/brightbar"
 
-  depends_on macos: ">= :ventura"
+  # Symbol form means "this version or later" in current Homebrew.
+  depends_on macos: :ventura
   depends_on arch: :arm64
 
   app "BrightBar.app"
 
-  zap trash: [
-    "~/Library/Preferences/com.brightbar.app.plist",
-  ]
+  uninstall quit: "com.brightbar.app"
+
+  zap trash: "~/Library/Preferences/com.brightbar.app.plist"
 end

@@ -26,6 +26,7 @@ Free, open source, native Swift, no Dock icon, no dependencies.
 
 ```bash
 brew tap suprasannaojha/brightbar https://github.com/suprasannaojha/brightbar
+brew trust suprasannaojha/brightbar     # Homebrew requires this once for any third-party tap
 brew install --cask brightbar
 ```
 
